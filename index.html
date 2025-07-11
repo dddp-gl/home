@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDDP - Digital Direct Democracy Platform</title>
+    <link rel="icon" href="data:,">
+    
+    <!-- アプリケーションデータ（最初に読み込む） -->
+    <script src="data.js"></script>
+
+    <!-- React関連のライブラリ -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- CSVパーサー -->
+    <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* 画面全体の共通スタイル */
+        body {
+            margin: 0 auto;
+            padding: 0;
+            font-size: 12pt;
+            color: #000000;
+            min-width: 350px;
+            max-width: 1000px;
+        }
+
+        /* メニュー共通スタイル */
+        .menu {
+            margin: 2px;
+            padding: 2px;
+            font-size: 12pt;
+            text-align: left;
+        }
+
+        /* ボタン共通スタイル */
+        button {
+            padding: 1px;
+            border: 1px solid black;
+            margin: 2px;
+            font-size: 12pt;
+            text-align: left;
+            background-color: lightblue;
+        }
+
+        /* 選択メニュー共通スタイル */
+        select {
+            margin: 2px;
+            padding: 1px;
+            font-size: 12pt;
+            text-align: left;
+        }
+
+        /* タイトル画面のグリッドレイアウト */
+        .title-grid {
+            display: grid;
+            grid-template-columns: 80px 80px 200px minmax(200px, 1fr) 100px 120px;
+            grid-template-rows: auto auto;
+            margin: 2px;
+            border: 1px solid black;
+            min-width: min-content;
+        }
+
+        .title-grid div {
+            padding: 2px;
+            text-align: center;
+            border-right: 1px solid black;
+            border-bottom: 1px solid black;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* お気に入りメニューのスタイル */
+        .favorite-menu button {
+            width: 25px;
+            background-color: white;
+        }
+
+        .favorite-menu button.github {
+            background-color: mediumseagreen;
+        }
+
+        .favorite-menu button.archive {
+            background-color: orangered;
+        }
+
+        .favorite-menu button.active {
+            background-color: khaki;
+        }
+
+        /* 選択メニューの幅制限 */
+        .genre-select { max-width: 140px; }
+        .src-select { max-width: 100px; }
+        .sort-select { max-width: 200px; }
+        .year-select { max-width: 70px; }
+        .area-select { max-width: 130px; }
+        .division-select { max-width: 130px; }
+
+        /* ファイル選択メニューのスタイル */
+        .menu button {
+            width: auto;
+            background-color: white;
+        }
+
+        .menu button.active {
+            background-color: khaki;
+        }
+
+        /* データ表示画面のスタイル */
+        .data-view {
+            margin: 2px;
+            padding: 0;
+            height: 1200px;
+            overflow: auto;
+            font-size: 12pt;
+        }
+
+        .data-view table {
+            width: auto;
+            border-collapse: collapse;
+            margin: 0;
+        }
+
+        .data-view td, .data-view th {
+            border: 1px solid black;
+            padding: 2px;
+            min-width: 15px;
+            text-align: left;
+            white-space: pre-wrap;
+            font-size: 12pt;
+            empty-cells: show;
+        }
+
+        /* コードブロックのスタイル */
+        code {
+            font-family: monospace;
+            font-size: 12pt;
+            background-color: #f5f5f5;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+
+        /* エラーメッセージのスタイル */
+        .error {
+            color: red;
+            font-size: 12pt;
+            margin: 2px;
+            padding: 2px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 初期ロード状態の表示 -->
+    <div id="root">
+        <div style="color: red; padding: 20px;">
+            読み込み中...アプリケーションが表示されない場合は、コンソールを確認してください。
+        </div>
+    </div>
+
+    <!-- メインアプリケーション -->
+    <script type="text/babel">
+        // グローバルスコープにReactを配置
+        window.React = React;
+        window.ReactDOM = ReactDOM;
+
+        // ----------------------------------
+        // 1. グローバル変数の定義（論理的なグループごと）
+        // ----------------------------------
+        
+        // アプリケーションの動作モード
+        let devMode = true;        // @type {boolean} - 開発モード（true）か本番モード（false）か
+        
+        // 画面遷移の状態管理
+        let page = "p1";          // @type {"p1"|"p2"|"p3"} - 現在の画面状態
+        let url1 = "";           // @type {string} - P1画面のURLベース（会議リストのリンク集のパス。通常はget_githubpages("dddp", "info")）
+        let url2 = "";           // @type {string} - P2画面のURLベース（会議リストのパス。GitHubの場合はget_githubpages(account, repository)、Archiveの場合はget_archivepages_p2()）
+        let url3 = "";           // @type {string} - P3画面のURLベース（会議内容のパス。GitHubの場合はget_githubpages(account, repository)、Archiveの場合はget_archivepages_p3(repository)）
+        let fileName1 = "fa.csv"; // @type {string} - P1画面の表示ファイル
+        let fileName2 = "";      // @type {string} - P2画面の表示ファイル
+        let fileName3 = "";      // @type {string} - P3画面の表示ファイル
+        
+        // データの分類と表示制御
+        let genre = "common";     // @type {"common"|"local"|"school"} - ジャンル区分
+        let src = "github";       // @type {"github"|"archive"} - データソース
+        let sort = "YAD";         // @type {"YAD"|"YDA"|"ADY"|"AYD"|"DYA"|"DAY"} - ソート順
+        let subSrc = "";          // @type {""|"a1"|"a2"} - アーカイブ期間
+        
+        // データフィルター条件
+        let year = "";           // @type {string} - 年度フィルター（例: "2025"）
+        let areaCode = "";       // @type {string} - エリアコードフィルター（例: "JP"）
+        let division = "";       // @type {string} - 区分フィルター（例: "P"）
+
+        // エラー状態管理
+        let messageErr = "";     // @type {string} - エラーメッセージ
+        let detailMessage = "";  // @type {string} - エラー詳細
+        
+        // データと状態管理
+        let data = [];          // @type {Array<Array<string>>} - CSVデータ
+        let favorites = new Array(10).fill(null);  // @type {Array<Object>} - お気に入りリスト（10件分）
+
+        // URL・ファイル関連の初期値は別の場所で設定済み
+
+        // 1.7 GitHub関連
+        let account = '';      // GitHubアカウント
+        let repository = '';   // GitHubリポジトリ
+
+        // 1.8 お気に入りモード関連
+        let favoriteMode = null;  // null: 通常モード, "heart": 追加モード, "trash": 削除モード
+
+        // サーバー定義とURL関連の定数
+        const ArchiveServer = "https://dddp.sakura.ne.jp/archive/";
+        const LocalServer = "http://127.0.0.1:5500/";
+        const YouTube = "https://www.youtube.com/";
+        const Github = "https://github.com/";
+
+        // ----------------------------------
+        // 2. グローバル関数（URL関連ユーティリティ）
+        // ----------------------------------
+        
+        const get_githuburl = (account, repository) => `https://github.com/${account}/${repository}/`;
+        const get_github = () => {
+            if (devMode) {
+                return '/';
+            } else {
+                return 'https://dddp.github.io/home/';
+            }
+        };
+        const get_githubpages = (account, repository) => {
+            if (devMode) {
+                return `${LocalServer}${repository}/`;
+            }
+            return `https://${account}.github.io/${repository}/`;
+        };
+        
+        /**
+         * csvファイルの完全なURLを取得する関数
+         */
+        const get_urlTemp = () => get_url() + get_fileName();
+        const get_archivepagesBase = () => {
+            if (devMode) {
+                return `${LocalServer}archive/`;
+            } else {
+                return `${ArchiveServer}archive/`;
+            }
+        };
+        const get_archivepages_p2 = () => `${get_archivepagesBase()}${genre}/${sort.slice(0, 2)}/`;
+        const get_archivepages_p3 = (repository) => `${get_archivepagesBase()}${genre}/${repository.slice(0,5)}/${repository.slice(5,7)}/`;
+
+        // ----------------------------------
+        // 3. グローバル関数（一般）の定義
+        // ----------------------------------
+        
+        /**
+         * 状態を更新する関数
+         * @param {Object} newState - 新しい状態オブジェクト
+         * @description 画面の状態変更を伴う全ての処理で使用する中心的な関数
+         */
+        const updateState = (newState) => {
+            if (newState.page) page = newState.page;
+            if (newState.genre) genre = newState.genre;
+            if (newState.src) src = newState.src;
+            if (newState.subSrc) subSrc = newState.subSrc;
+            if (newState.sort) sort = newState.sort;
+            if (newState.year) year = newState.year;
+            if (newState.areaCode) areaCode = newState.areaCode;
+            if (newState.division) division = newState.division;
+            if (newState.url1) url1 = newState.url1;
+            if (newState.url2) url2 = newState.url2;
+            if (newState.url3) url3 = newState.url3;
+            if (newState.fileName1) fileName1 = newState.fileName1;
+            if (newState.fileName2) fileName2 = newState.fileName2;
+            if (newState.fileName3) fileName3 = newState.fileName3;
+            if (newState.account) account = newState.account;
+            if (newState.repository) repository = newState.repository;
+            disp();
+        };
+
+        /**
+         * CSVファイルを読み込む関数
+         * @description エラー処理を含む非同期データ読み込み処理
+         */
+        const loadCsvData = async () => {
+            try {
+                // エラー状態をリセット
+                messageErr = "";
+                detailMessage = "";
+
+                // URLの組み立て
+                const url = get_urlTemp();
+                const currentFileName = get_fileName();
+                console.log('CSV URL:', url);
+                
+                if (!url) {
+                    throw new Error('URLが生成できません');
+                }
+
+                // ファイルの取得
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTPエラー: status ${response.status} - ${response.statusText}`);
+                }
+                
+                // CSVのパース
+                const text = await response.text();
+                const results = Papa.parse(text, {
+                    header: false,
+                    skipEmptyLines: true,
+                    error: (error) => {
+                        throw new Error(`CSVパースエラー: ${error.message}`);
+                    }
+                });
+                
+                // パース結果のバリデーション
+                if (!Array.isArray(results.data)) {
+                    throw new Error('CSVデータが配列ではありません');
+                }
+
+                if (results.errors && results.errors.length > 0) {
+                    const error = results.errors[0];
+                    throw new Error(`CSVエラー: ${error.type} at row ${error.row} - ${error.message}`);
+                }
+
+                // データの更新
+                data = results.data;
+                
+            } catch (error) {
+                // エラー処理
+                data = [];
+                messageErr = "CSV File Read Error";
+                detailMessage = `CSVファイル '${currentFileName}' の読み込みに失敗: ${error.message}`;
+                console.error('CSVデータ読み込みエラー:', error);
+
+            } finally {
+                // UI更新
+                disp();
+            }
+        };
+
+        /**
+         * LocalStorageから状態を読み込む関数
+         * @description お気に入り情報の永続化処理
+         */
+        const loadFromStorage = () => {
+            try {
+                const storedFavorites = localStorage.getItem('favorites');
+                if (storedFavorites) {
+                    favorites = JSON.parse(storedFavorites);
+                }
+                messageErr = '';
+                detailMessage = '';
+            } catch (error) {
+                messageErr = "LocalStorage Read/Write Error";
+                detailMessage = `お気に入り情報の読み込みに失敗: ${error.message}`;
+                favorites = [];
+            }
+        };
+
+        /**
+         * LocalStorageに状態を保存する関数
+         * @description お気に入り情報の永続化処理
+         */
+        const saveToStorage = () => {
+            try {
+                localStorage.setItem('favorites', JSON.stringify(favorites));
+                messageErr = '';
+                detailMessage = '';
+            } catch (error) {
+                messageErr = "LocalStorage Read/Write Error";
+                detailMessage = `お気に入り情報の保存に失敗: ${error.message}`;
+                disp();
+            }
+        };
+
+        // ----------------------------------
+        // 4. グローバル関数（ユーティリティ関係）の定義
+        // ----------------------------------
+
+        /**
+         * URLが許可されているかどうかを判定する関数
+         * @param {string} urlq - チェックするURL
+         * @returns {string} - "Youtube", "GitHub", "Government", "forbidden"のいずれか
+         */
+        const check_url = (urlq) => {
+            if (!urlq) return "forbidden";
+            if (urlq.includes("https://www.youtube.com/")) return "Youtube";
+            if (urlq.includes("https://github.com/")) return "GitHub";
+            if (urlq.includes(".go.jp")) return "Government";
+            return "forbidden";
+        };
+
+        /**
+         * 会議番号を取得する関数
+         * @returns {string} 会議番号
+         */
+        const get_meetingNum = () => {
+            const url = get_url();
+            const parts = url.split('/');
+            return parts[parts.length - 2];
+        };
+
+        /**
+         * 現在のページ名を取得する関数
+         * @returns {string} ページ名
+         */
+        const get_pageName = () => {
+            switch(page) {
+                case "p1": return "List of Meeting List";
+                case "p2": return "Meeting List";
+                case "p3": return "Meeting";
+                default: return "";
+            }
+        };
+
+        /**
+         * 現在のURLを取得する関数
+         * @returns {string} 現在のURL
+         */
+        const get_url = () => {
+            switch(page) {
+                case "p1": return url1;
+                case "p2": return url2;
+                case "p3": return url3;
+                default: return "";
+            }
+        };
+
+        /**
+         * 現在のファイル名を取得する関数
+         * @returns {string} 現在のファイル名
+         */
+        const get_fileName = () => {
+            switch(page) {
+                case "p1": return fileName1;
+                case "p2": return fileName2;
+                case "p3": return fileName3;
+                default: return "";
+            }
+        };
+
+        /**
+         * PDCAサイクル区分の取得
+         * @returns {string} PDCAサイクル区分（P/D/C/A）
+         */
+        const get_pdca = () => {
+            const meetingNum = get_meetingNum();
+            if (meetingNum) {
+                return meetingNum.slice(11, 12);
+            } else {
+                return '';
+            }
+        };
+
+        // ----------------------------------
+        // 7. レンダリング関数（disp）
+        // ----------------------------------
+
+        /**
+         * レンダリング関数
+         * @description コンポーネントのマウントとエラー発生時の再レンダリング処理を担当
+         */
+        let rootInstance = null;
+        const disp = () => {
+            try {
+                const rootElement = document.getElementById('root');
+                if (!rootElement) {
+                    throw new Error('root要素が見つかりません');
+                }
+
+                if (!rootInstance) {
+                    rootInstance = ReactDOM.createRoot(rootElement);
+                }
+                rootInstance.render(React.createElement(App));
+            } catch (error) {
+                console.error('レンダリングエラー:', error);
+                messageErr = 'アプリケーションのレンダリングに失敗しました';
+                detailMessage = error.toString();
+                // 最小限のエラー表示
+                const rootElement = document.getElementById('root');
+                if (rootElement) {
+                    rootElement.innerHTML = `
+                        <div style="color: red; padding: 20px;">
+                            <h2>エラーが発生しました</h2>
+                            <p>${messageErr}</p>
+                            <p>${detailMessage}</p>
+                        </div>
+                    `;
+                }
+            }
+        };
+
+        // ----------------------------------
+        // 8. アプリケーションの初期化処理
+        // ----------------------------------
+
+        /**
+         * 初期化関数
+         * @description LocalStorageからの初期データ読み込みとCSVデータの読み込みを行う
+         */
+        const initializeApp = async () => {
+            try {
+                // エラー状態のリセット
+                messageErr = '';
+                detailMessage = '';
+
+                // url1の初期化
+                // < *1: url1 の決定 >
+                url1 = get_githubpages("dddp", "info");
+                
+                // グローバル変数の存在確認
+                if (typeof years === 'undefined') throw new Error('years変数が見つかりません');
+                if (typeof areaCodes === 'undefined') throw new Error('areaCodes変数が見つかりません');
+                if (typeof divisions === 'undefined') throw new Error('divisions変数が見つかりません');
+
+                // お気に入りの初期化
+                favorites = Array(10).fill([]);
+
+                // LocalStorageからお気に入りを読み込み
+                await loadFromStorage();
+
+                // CSVデータの読み込み
+                await loadCsvData();
+
+            } catch (error) {
+                messageErr = 'アプリケーションの初期化に失敗しました';
+                detailMessage = error.toString();
+                console.error('初期化エラー:', error);
+            } finally {
+                // 初期表示
+                disp();
+            }
+        };
+
+        // DOMContentLoadedを待って初期化を実行
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+
+        // お気に入りモード変数は上部で既に定義済み
+
+        // ----------------------------------
+        // 5. 画面コンポーネントの定義
+        // ----------------------------------
+        
+        /**
+         * タイトル画面コンポーネント
+         * @description 画面上部のタイトルと状態表示を担当
+         */
+        const TitleScreen = () => {
+            return (
+                <div className="title-screen" data-src={src}>
+                    <div className="title-grid">
+                        <div>Title</div>
+                        <div>Page</div>
+                        <div>Page Name</div>
+                        <div>url</div>
+                        <div>File Name</div>
+                        <div>Error</div>
+                        <div>DDDP</div>
+                        <div>{page}</div>
+                        <div>{get_pageName()}</div>
+                        <div>{get_url()}</div>
+                        <div>{get_fileName()}</div>
+                        <div>{messageErr}</div>
+                    </div>
+                </div>
+            );
+        };
+
+        /**
+         * お気に入りメニューコンポーネント
+         */
+        const FavoriteMenu = () => {
+            /**
+             * お気に入りボタンのクラスを取得
+             * @param {number} index - ボタンのインデックス
+             * @returns {string} CSSクラス名
+             */
+            const getFavoriteButtonClass = (index) => {
+                if (!favorites[index] || Object.keys(favorites[index]).length === 0) {
+                    return "";
+                }
+                if (favorites[index].src === "github") {
+                    return "github";
+                } else {
+                    return "archive";
+                }
+            };
+
+            /**
+             * コンパスボタンのクリックハンドラ
+             * GitHubモード時のみ初期画面に戻る
+             */
+            const handleCompass = () => {
+                if (src === "github") {
+                    // < *1: url1の決定 >
+                    updateState({
+                        genre: "common",
+                        src: "github",
+                        page: "p1",
+                        fileName1: "fa.csv",
+                        url1: get_githubpages("dddp", "info")
+                    });
+                    loadCsvData(); // CSVデータの再読み込みを追加
+                }
+            };
+
+            /**
+             * 戻るボタンのクリックハンドラ
+             * 画面遷移の履歴を遡る
+             */
+            const handleBack = () => {
+                let newState = {};
+                if (page === "p3") {
+                    // p3からp2へ戻る
+                    newState = { 
+                        page: "p2",
+                        url2: url2,  // 現在のurl2を保持
+                        fileName2: "fa.csv"
+                    };
+                } else if (page === "p2" && src === "github") {
+                    // p2からp1へ戻る（GitHubモードのみ）
+                    newState = { 
+                        page: "p1",
+                        url1: get_githubpages("dddp", "info"),
+                        fileName1: "fa.csv"
+                    };
+                }
+                if (Object.keys(newState).length > 0) {
+                    updateState(newState);
+                    loadCsvData(); // CSVデータの再読み込みを追加
+                }
+            };
+
+            /**
+             * お気に入りボタンのクリックハンドラ
+             * @param {number} index - ボタンのインデックス
+             */
+            const handleFavoriteClick = (index) => {
+                try {
+                    if (messageErr && messageErr.includes("LocalStorage")) {
+                        messageErr = "お気に入り機能は使用できません";
+                        disp();
+                        return;
+                    }
+
+                    if (favoriteMode === "heart") {
+                        // お気に入りを追加
+                        favorites[index] = {
+                            page, genre, src, subSrc, sort, year, areaCode, division,
+                            url1, url2, url3, fileName1, fileName2, fileName3
+                        };
+                        saveToStorage();
+                        favoriteMode = null;
+                        disp();
+
+                    } else if (favoriteMode === "trash") {
+                        // お気に入りを削除
+                        favorites[index] = [];
+                        saveToStorage();
+                        favoriteMode = null;
+                        disp();
+
+                    } else if (favorites[index] && favorites[index].src === src) {
+                        // お気に入りを読み込み
+                        const favorite = favorites[index];
+                        updateState(favorite);
+                        loadCsvData();
+                    }
+                } catch (error) {
+                    messageErr = "お気に入り操作でエラーが発生しました";
+                    detailMessage = error.toString();
+                    disp();
+                }
+            };
+
+            /**
+             * モードボタンのクリックハンドラ
+             * @param {string} mode - "heart" または "trash"
+             */
+            const handleModeClick = (mode) => {
+                if (favoriteMode === mode) {
+                    favoriteMode = null;
+                } else {
+                    favoriteMode = mode;
+                }
+                disp();
+            };
+
+            return (
+                <div className="favorite-menu menu">
+                    <button onClick={handleCompass}>🧭</button>
+                    <button 
+                        className={getActiveClass("heart", favoriteMode)}
+                        onClick={() => handleModeClick("heart")}>❤️</button>
+                    {[...Array(10)].map((_, i) => (
+                        <button
+                            key={i}
+                            className={getFavoriteButtonClass(i)}
+                            onClick={() => handleFavoriteClick(i)}
+                        >{i + 1}</button>
+                    ))}
+                    <button 
+                        className={getActiveClass("trash", favoriteMode)}
+                        onClick={() => handleModeClick("trash")}>🗑️</button>
+                    <button onClick={handleBack}>⬅</button>
+                </div>
+            );
+        };
+
+        /**
+         * 選択メニューコンポーネント
+         */
+        const SelectionMenu = () => {
+            return (
+                <div className="menu">
+                    <select 
+                        className="genre-select" 
+                        value={genre}
+                        onChange={(e) => updateState({ genre: e.target.value })}>
+                        <option value="common">DDDP Common</option>
+                        <option value="local">DDDP Local</option>
+                        <option value="school">DDDP School</option>
+                    </select>
+
+                    <select 
+                        className="src-select" 
+                        value={src}
+                        onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "github") {
+                                // < *1: url1の決定 >
+                                const newUrl1 = get_githubpages("dddp", "info");
+                                updateState({
+                                    src: "github",
+                                    page: "p1",
+                                    url1: newUrl1,
+                                    fileName1: "fa.csv"
+                                });
+                                loadCsvData();
+                            } else {
+                                updateState({
+                                    src: "archive",
+                                    page: "p2"
+                                });
+                            }
+                        }}>
+                        <option value="github">🟩GitHub</option>
+                        <option value="archive">🟧Archive</option>
+                    </select>
+
+                    <select 
+                        className="sort-select"
+                        value={`${subSrc}:${sort}`}
+                        onChange={(e) => {
+                            const [period, newSort] = e.target.value.split(":");
+                            const newState = {
+                                subSrc: period,
+                                sort: newSort
+                            };
+                            
+                            if (src === "archive") {
+                                // < *2: url2の決定 >
+                                newState.url2 = get_archivepages_p2();
+                            }
+                            
+                            updateState(newState);
+                        }}
+                        disabled={src !== "archive"}>
+                        <optgroup label="Archive a1(y2025-y2029)">
+                            <option value="a1:YAD">a1:Year-Area-Div</option>
+                            <option value="a1:YDA">a1:Year-Div-Area</option>
+                            <option value="a1:ADY">a1:Area-Div-Year</option>
+                            <option value="a1:AYD">a1:Area-Year-Div</option>
+                            <option value="a1:DYA">a1:Div-Year-Area</option>
+                            <option value="a1:DAY">a1:Div-Area-Year</option>
+                        </optgroup>
+                        <optgroup label="Archive a2(y2030-)">
+                            <option value="a2:YAD">a2:Year-Area-Div</option>
+                            <option value="a2:YDA">a2:Year-Div-Area</option>
+                            <option value="a2:ADY">a2:Area-Div-Year</option>
+                            <option value="a2:AYD">a2:Area-Year-Div</option>
+                            <option value="a2:DYA">a2:Div-Year-Area</option>
+                            <option value="a2:DAY">a2:Div-Area-Year</option>
+                        </optgroup>
+                    </select>
+                </div>
+            );
+        };
+
+        /**
+         * YADメニューコンポーネント
+         * year, areaCode, division の選択を担当
+         */
+        const YADMenu = () => {
+            /**
+             * YAD選択時の共通処理
+             * @param {string} type - "Y", "A", "D" のいずれか
+             * @param {string} value - 選択された値
+             */
+            const handleYADSelection = (type, value) => {
+                try {
+                    const newState = {};
+                    
+                    // 基本的な状態更新
+                    switch(type) {
+                        case 'Y':
+                            newState.year = value;
+                            break;
+                        case 'A':
+                            newState.areaCode = value;
+                            break;
+                        case 'D':
+                            newState.division = value;
+                            break;
+                    }
+
+                    // アーカイブモードでのファイル名更新
+                    if (src === "archive" && sort.slice(0, 1) === type) {
+                        // < *4: fileName2の決定 >
+                        newState.fileName2 = `${value}.csv`;
+                    }
+
+                    updateState(newState);
+                    
+                    // 必要に応じてCSVデータを再読み込み
+                    if (src === "archive" && sort.slice(0, 1) === type) {
+                        loadCsvData();
+                    }
+
+                } catch (error) {
+                    messageErr = "YADメニューの選択処理でエラーが発生しました";
+                    detailMessage = error.toString();
+                    disp();
+                }
+            };
+
+            return (
+                <div className="menu">
+                    {/* Year選択メニュー */}
+                    <select 
+                        className="year-select" 
+                        value={year}
+                        onChange={(e) => handleYADSelection('Y', e.target.value)}>
+                        {years.map(yr => (
+                            <option key={yr} value={yr}>{yr}</option>
+                        ))}
+                    </select>
+
+                    {/* Area選択メニュー */}
+                    <select 
+                        className="area-select" 
+                        value={areaCode}
+                        onChange={(e) => handleYADSelection('A', e.target.value)}>
+                        {areaCodes.map(([code, name]) => (
+                            <option key={code} value={code}>{`${code}:${name}`}</option>
+                        ))}
+                    </select>
+
+                    {/* Division選択メニュー */}
+                    <select 
+                        className="division-select" 
+                        value={division}
+                        onChange={(e) => handleYADSelection('D', e.target.value)}>
+                        {divisions.map(([code, name]) => (
+                            <option key={code} value={code}>{`${code}:${name}`}</option>
+                        ))}
+                    </select>
+                </div>
+            );
+        };
+
+        /**
+         * ファイル選択メニューコンポーネント
+         */
+        const FileMenu = () => {
+            /**
+             * ファイル選択処理
+             * @param {string} fileName - 選択されたファイル名
+             */
+            const handleFileSelect = (fileName) => {
+                try {
+                    // 画面状態に応じたファイル名更新
+                    let updateNeeded = false;
+                    const newState = {};
+
+                    if (page === "p1") {
+                        // < *5: fileName1の決定 >
+                        newState.fileName1 = fileName;
+                        updateNeeded = true;
+                    } else if (page === "p2" && src === "github") {
+                        // < *5: fileName2の決定 >
+                        newState.fileName2 = fileName;
+                        updateNeeded = true;
+                    } else if (page === "p3") {
+                        // < *5: fileName3の決定 >
+                        newState.fileName3 = fileName;
+                        updateNeeded = true;
+                    }
+
+                    if (updateNeeded) {
+                        updateState(newState);
+                        loadCsvData();
+                    }
+
+                } catch (error) {
+                    messageErr = "ファイル選択処理でエラーが発生しました";
+                    detailMessage = error.toString();
+                    disp();
+                }
+            };
+
+            /**
+             * usage/surveyリンクを開く
+             * @param {string} type - "usage" または "survey"
+             */
+            const handleLinkClick = (type) => {
+                try {
+                    let url;
+                    if (type === "usage") {
+                        url = `${get_archive()}home/usage${page}.html`;
+                    } else if (type === "survey" && page === "p3") {
+                        const meetingNum = get_meetingNum();
+                        url = `${get_archive()}survey/${genre}/${meetingNum.slice(0,5)}/${meetingNum}.html`;
+                    }
+                    if (url) {
+                        window.open(url, '_blank');
+                    }
+                } catch (error) {
+                    messageErr = "リンク処理でエラーが発生しました";
+                    detailMessage = error.toString();
+                    disp();
+                }
+            };
+
+            /**
+             * surveyボタンをレンダリングする関数
+             * @returns {JSX.Element|null}
+             */
+            const renderSurveyButton = () => {
+                if (page === "p3") {
+                    return <button onClick={() => handleLinkClick("survey")}>survey</button>;
+                }
+                return null;
+            };
+
+            /**
+             * ボタンのクラス名を取得
+             * @param {string} fileName - ボタンに対応するファイル名
+             * @returns {string} CSSクラス名
+             */
+            const getButtonClass = (fileName) => {
+                const currentFile = get_fileName();
+                return getActiveClass(fileName, currentFile);
+            };
+
+            return (
+                <div className="menu">
+                    <button 
+                        className={getButtonClass("fa.csv")}
+                        onClick={() => handleFileSelect("fa.csv")}>Main</button>
+                    <button 
+                        className={getButtonClass("fb.csv")}
+                        onClick={() => handleFileSelect("fb.csv")}>Sub</button>
+                    <button 
+                        className={getButtonClass("fn.csv")}
+                        onClick={() => handleFileSelect("fn.csv")}>News</button>
+                    <button 
+                        className={getButtonClass("fr.csv")}
+                        onClick={() => handleFileSelect("fr.csv")}>Docs</button>
+                    <button onClick={() => handleLinkClick("usage")}>usage</button>
+                    {renderSurveyButton()}
+                </div>
+            );
+        };
+
+        /**
+         * データ表示コンポーネント
+         * @description CSVデータを表形式で表示し、インタラクティブな要素を処理
+         */
+        const DataDisplay = () => {
+            /**
+             * 列インデックスを検索する関数
+             * @param {Array} headers - ヘッダー行
+             * @param {string} columnName - 検索する列名
+             * @returns {number} 列のインデックス
+             */
+            const findColumnIndex = (headers, columnName) => {
+                return headers.findIndex(header => header === columnName);
+            };
+
+            /**
+             * GitHubページへの遷移を処理する関数
+             * @param {string} account - GitHubアカウント
+             * @param {string} repository - リポジトリ名
+             */
+            const handleGitHubPage = (account, repository) => {
+                try {
+                    // < *3: url3の決定 >
+                    const newUrl2 = get_githubpages(account, repository);
+                    if (!newUrl2) {
+                        throw new Error('GitHubページのURLの生成に失敗しました');
+                    }
+
+                    updateState({
+                        page: "p2",
+                        url2: newUrl2,
+                        fileName2: "fa.csv",
+                        account: account,
+                        repository: repository
+                    });
+                    loadCsvData();
+                } catch (error) {
+                    messageErr = 'GitHubページへの遷移に失敗しました';
+                    detailMessage = error.toString();
+                    disp();
+                }
+            };
+
+            /**
+             * リポジトリページへの遷移を処理する関数
+             * @param {string} account - GitHubアカウント
+             * @param {string} repository - リポジトリ名
+             */
+            const handleRepositoryPage = (account, repository) => {
+                try {
+                    let newUrl3;
+                    if (src === "github") {
+                        newUrl3 = get_githubpages(account, repository);
+                    } else {
+                        newUrl3 = get_archivepages_p3(repository);
+                    }
+
+                    if (!newUrl3) {
+                        throw new Error('リポジトリページのURLの生成に失敗しました');
+                    }
+
+                    updateState({
+                        page: "p3",
+                        fileName3: "fa.csv",
+                        url3: newUrl3,
+                        account: account,
+                        repository: repository
+                    });
+                    loadCsvData();
+                } catch (error) {
+                    messageErr = 'リポジトリページへの遷移に失敗しました';
+                    detailMessage = error.toString();
+                    disp();
+                }
+            };
+
+            /**
+             * セルの内容をレンダリングする関数
+             * @param {string} cell - セルの内容
+             * @param {number} rowIndex - 行インデックス
+             * @param {number} colIndex - 列インデックス
+             * @returns {JSX.Element} レンダリングされたセル
+             */
+            const renderCell = (cell, rowIndex, colIndex) => {
+                // 基本的なバリデーション
+                if (!data || !data[0]) {
+                    let displayValue = '';
+                    if (cell) {
+                        displayValue = cell;
+                    }
+                    return <td key={colIndex}>{displayValue}</td>;
+                }
+                if (!cell) return <td key={colIndex}>{''}</td>;
+
+                const headers = data[0];
+                const isHeader = rowIndex === 0;
+
+                // URLの処理
+                if (cell.startsWith('http')) {
+                    const result = check_url(cell);
+                    const content = result !== "forbidden"
+                        ? <a href={cell} target="_blank" rel="noopener noreferrer">{result}</a>
+                        : "<forbidden URL>";
+                    return <td key={colIndex}>{content}</td>;
+                }
+
+                // P1ページのセル処理
+                if (page === "p1" && !isHeader) {
+                    const isAccountCell = headers[colIndex] === genre;
+                    const isAreaNameCell = headers[colIndex] === "Area_Name";
+                    const isCodeCell = headers[colIndex] === "Code";
+                    const accountColIndex = findColumnIndex(headers, genre);
+                    const account = data[rowIndex][accountColIndex];
+
+                    // Codeセルのタグ処理
+                    if (isCodeCell) {
+                        return <td key={colIndex}><code>{cell}</code></td>;
+                    }
+
+                    if (isAccountCell) {
+                        return (
+                            <td key={colIndex}>
+                                <button onClick={() => handleGitHubPage(cell, `home${genre}`)}>
+                                    {cell}
+                                </button>
+                            </td>
+                        );
+                    }
+
+                    if (isAreaNameCell && account) {
+                        return (
+                            <td key={colIndex}>
+                                <a 
+                                    href={get_githuburl(account, `home${genre}`)}
+                                    target="_blank"
+                                    rel="noopener noreferrer">
+                                    {cell}
+                                </a>
+                            </td>
+                        );
+                    }
+                }
+
+                // P2ページのセル処理
+                if (page === "p2" && !isHeader) {
+                    const isRepositoryCell = headers[colIndex] === "repository";
+                    const isAccountCell = headers[colIndex] === "account";
+                    const accountColIndex = findColumnIndex(headers, "account");
+                    const repositoryColIndex = findColumnIndex(headers, "repository");
+                    const account = data[rowIndex][accountColIndex];
+                    const repository = data[rowIndex][repositoryColIndex];
+
+                    if (isRepositoryCell) {
+                        return (
+                            <td key={colIndex}>
+                                <button onClick={() => handleRepositoryPage(account, cell)}>
+                                    {cell}
+                                </button>
+                            </td>
+                        );
+                    }
+
+                    if (isAccountCell && src === "github") {
+                        return (
+                            <td key={colIndex}>
+                                <a 
+                                    href={get_githuburl(cell, repository)}
+                                    target="_blank"
+                                    rel="noopener noreferrer">
+                                    {cell}
+                                </a>
+                            </td>
+                        );
+                    }
+                }
+
+                // デフォルトのセル表示
+                return <td key={colIndex}>{cell}</td>;
+            };
+
+            // ローディング状態の表示
+            if (!data) {
+                return <div className="data-view">読み込み中...</div>;
+            }
+
+            // エラー状態の表示
+            if (messageErr) {
+                return (
+                    <div className="data-view">
+                        <div className="error">
+                            {messageErr}
+                            {renderDetailMessage()}
+                            {detailMessage}
+                        </div>
+                    </div>
+                );
+            }
+
+            // データテーブルの表示
+            return (
+                <div className="data-view">
+                    <table>
+                        <tbody>
+                            {data.map((row, i) => (
+                                <tr key={i}>
+                                    {row.map((cell, j) => renderCell(cell, i, j))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        };
+
+        /**
+         * 詳細エラーメッセージをレンダリングする関数
+         * @returns {JSX.Element|null}
+         */
+        const renderDetailMessage = () => {
+            if (detailMessage) {
+                return <div>{detailMessage}</div>;
+            }
+            return null;
+        };
+
+        /**
+         * メインアプリケーションコンポーネント
+         * @description 全画面のコンポーネントを合成し、画面の表示・非表示を制御
+         */
+        const App = () => {
+            return (
+                <div className="app-container">
+                    <TitleScreen />
+                    <FavoriteMenu />
+                    <SelectionMenu />
+                    <YADMenu />
+                    <FileMenu />
+                    <DataDisplay />
+                    <div className="error" style={{display: messageErr ? 'block' : 'none'}}>
+                        <div>{messageErr}</div>
+                        {renderDetailMessage()}
+                    </div>
+                </div>
+            );
+        };
+
+        /**
+         * アクティブクラスを取得する関数
+         * @param {string} target - ターゲットのモード（"heart" または "trash"）
+         * @param {string} currentMode - 現在のモード
+         * @returns {string} - "active" または ""
+         */
+        const getActiveClass = (target, currentMode) => {
+            if (currentMode === target) {
+                return "active";
+            } else {
+                return "";
+            }
+        };
+
+        // メインアプリケーションコンポーネントをグローバルに公開
+        // これは唯一のグローバル公開コンポーネント
+        window.App = App;
+
+
+    </script>
+</body>
+</html>
